@@ -173,22 +173,88 @@
 </div>
 
 <script>
-  // ── Product catalogue ──────────────────────────────────────────
   const PRODUCTS = [
-    { id: "p_shoe_01",   name: "Trail Runners",    price: 89.99,  emoji: "👟", page: "/products/shoes" },
-    { id: "p_laptop_02", name: "UltraBook Pro",    price: 999.00, emoji: "💻", page: "/products/laptops" },
-    { id: "p_watch_03",  name: "SmartWatch X",     price: 249.99, emoji: "⌚", page: "/products/watches" },
-    { id: "p_camera_04", name: "Pocket Camera",    price: 349.50, emoji: "📷", page: "/products/cameras" },
-    { id: "p_headph_05", name: "NoiseFree Buds",   price: 129.00, emoji: "🎧", page: "/products/audio" },
-    { id: "p_tshirt_06", name: "Classic Tee",      price: 29.99,  emoji: "👕", page: "/products/apparel" },
+    { id: "p_shoe_01",   name: "Trail Runners",  price: 89.99,  emoji: "👟", page: "/products/shoes" },
+    { id: "p_laptop_02", name: "UltraBook Pro",  price: 999.00, emoji: "💻", page: "/products/laptops" },
+    { id: "p_watch_03",  name: "SmartWatch X",   price: 249.99, emoji: "⌚", page: "/products/watches" },
+    { id: "p_camera_04", name: "Pocket Camera",  price: 349.50, emoji: "📷", page: "/products/cameras" },
+    { id: "p_headph_05", name: "NoiseFree Buds", price: 129.00, emoji: "🎧", page: "/products/audio" },
+    { id: "p_tshirt_06", name: "Classic Tee",    price: 29.99,  emoji: "👕", page: "/products/apparel" },
   ];
 
-  // Simulated session ID – changes on every page load
   const SESSION_ID = "s_" + Math.random().toString(36).slice(2, 8);
-  // Simulated user ID – in a real app this comes from auth
   const USER_ID = "u_" + Math.random().toString(36).slice(2, 6);
 
-  // ── Render product cards ───────────────────────────────────────
+  function getDeviceType() {
+    const ua = navigator.userAgent.toLowerCase();
+    if (ua.includes("ipad") || ua.includes("tablet")) return "tablet";
+    if (ua.includes("mobi") || ua.includes("android") || ua.includes("iphone")) return "mobile";
+    return "desktop";
+  }
+
+  function getBrowser() {
+    const ua = navigator.userAgent;
+    if (ua.includes("Edg")) return "Edge";
+    if (ua.includes("Chrome") && !ua.includes("Edg")) return "Chrome";
+    if (ua.includes("Firefox")) return "Firefox";
+    if (ua.includes("Safari") && !ua.includes("Chrome") && !ua.includes("Edg")) return "Safari";
+    return "Other";
+  }
+
+  function getOS() {
+    const ua = navigator.userAgent;
+    if (ua.includes("Windows")) return "Windows";
+    if (ua.includes("Mac OS")) return "macOS";
+    if (ua.includes("Android")) return "Android";
+    if (ua.includes("iPhone") || ua.includes("iPad")) return "iOS";
+    if (ua.includes("Linux")) return "Linux";
+    return "Other";
+  }
+
+  function addToCart(productId, page) {
+    trackEvent("add_to_cart", page, productId);
+  }
+
+  function trackEvent(eventType, page, productId) {
+    const payload = {
+      event_type: eventType,
+      page: page,
+      product_id: productId,
+      user_id: USER_ID,
+      session_id: SESSION_ID,
+      deviceType: getDeviceType(),
+      browser: getBrowser(),
+      os: getOS()
+    };
+
+    fetch("/track", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    })
+    .then(res => res.json())
+    .then(() => logEvent(payload, true))
+    .catch(() => logEvent(payload, false));
+  }
+
+  function logEvent(payload, success) {
+    const log = document.getElementById("event-log");
+    const time = new Date().toISOString().slice(11, 23);
+    const line = document.createElement("div");
+    line.className = "log-line";
+    line.innerHTML =
+      `<span class="ts">[${time}]</span> ` +
+      `<span class="evt">${payload.event_type}</span> ` +
+      `${payload.page || ""}` +
+      (payload.product_id ? ` (${payload.product_id})` : "") +
+      ` [${payload.deviceType}, ${payload.browser}, ${payload.os}]` +
+      ` <span class="${success ? "ok" : "err"}">${success ? "→ sent to Event Hubs" : "× send failed"}</span>`;
+
+    if (log.querySelector("span[style]")) log.innerHTML = "";
+    log.appendChild(line);
+    log.scrollTop = log.scrollHeight;
+  }
+
   const grid = document.getElementById("product-grid");
   PRODUCTS.forEach(product => {
     const card = document.createElement("div");
@@ -199,68 +265,21 @@
       <div class="price">$${product.price.toFixed(2)}</div>
       <button onclick="addToCart('${product.id}', '${product.page}')">Add to Cart</button>
     `;
-    // Clicking the card body (not the button) = product_click event
+
     card.addEventListener("click", (e) => {
       if (e.target.tagName !== "BUTTON") {
         trackEvent("product_click", product.page, product.id);
       }
     });
+
     grid.appendChild(card);
   });
 
-  // ── Track page_view on load ────────────────────────────────────
-  trackEvent("page_view", window.location.pathname, null);
-
-  // ── Track banner click ─────────────────────────────────────────
   document.getElementById("hero-banner").addEventListener("click", () => {
     trackEvent("banner_click", "/", null);
   });
 
-  // ── Add to cart handler ────────────────────────────────────────
-  function addToCart(productId, page) {
-    trackEvent("add_to_cart", page, productId);
-  }
-
-  // ── Core tracking function ─────────────────────────────────────
-  // Sends a POST request to /track with the event details.
-  // The Flask backend publishes this to Azure Event Hubs.
-  function trackEvent(eventType, page, productId) {
-    const payload = {
-      event_type: eventType,
-      page:       page,
-      product_id: productId,
-      user_id:    USER_ID,
-      session_id: SESSION_ID,
-    };
-
-    // Send the event to the Flask /track endpoint
-    fetch("/track", {
-      method:  "POST",
-      headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify(payload),
-    })
-    .then(res => res.json())
-    .then(data => logEvent(payload, true))
-    .catch(err => logEvent(payload, false));
-  }
-
-  // ── Append a line to the on-page event log ─────────────────────
-  function logEvent(payload, success) {
-    const log  = document.getElementById("event-log");
-    const time = new Date().toISOString().slice(11, 23); // HH:MM:SS.mmm
-    const line = document.createElement("div");
-    line.className = "log-line";
-    line.innerHTML =
-      `<span class="ts">[${time}]</span> ` +
-      `<span class="evt">${payload.event_type}</span> ` +
-      `${payload.page || ""}` +
-      (payload.product_id ? ` (${payload.product_id})` : "") +
-      ` <span class="${success ? "ok" : "err"}">${success ? "→ sent to Event Hubs" : "× send failed"}</span>`;
-    // Remove placeholder text on first real event
-    if (log.querySelector("span[style]")) log.innerHTML = "";
-    log.appendChild(line);
-    log.scrollTop = log.scrollHeight;
-  }
+  trackEvent("page_view", window.location.pathname, null);
 </script>
 </body>
 </html>
