@@ -14,6 +14,7 @@ import os
 import json
 import threading
 from datetime import datetime, timezone
+import pyodbc
 
 from flask import Flask, jsonify, request, send_from_directory, abort
 from flask_cors import CORS
@@ -47,6 +48,13 @@ _event_buffer = []
 _buffer_lock = threading.Lock()
 MAX_BUFFER = 50
 
+# ---------------------------------------------------------------------------
+# Helper – get sql connectoin
+# ---------------------------------------------------------------------------
+def get_sql_connection():
+    conn_str = os.environ.get("SQL_CONNECTION_STRING")
+    print("SQL_CONNECTION_STRING exists:", bool(conn_str))
+    return pyodbc.connect(conn_str)
 
 # ---------------------------------------------------------------------------
 # Helper – send a single event dict to Azure Event Hubs
@@ -221,6 +229,59 @@ def get_events():
 
     return jsonify({"events": recent, "summary": summary, "total": len(recent)}), 200
 
+# ---------------------------------------------------------------------------
+# API 1：device stats
+# ---------------------------------------------------------------------------
+@app.route("/api/device-stats")
+def device_stats():
+    conn = get_sql_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT TOP 10 windowEnd, deviceType, eventCount
+        FROM DeviceTypeStats
+        ORDER BY windowEnd DESC
+    """)
+
+    rows = cursor.fetchall()
+
+    results = []
+    for row in rows:
+        results.append({
+            "windowEnd": row[0].isoformat() if row[0] else None,
+            "deviceType": row[1],
+            "eventCount": row[2]
+        })
+
+    conn.close()
+    return jsonify(results)
+
+# ---------------------------------------------------------------------------
+# API 2：traffic spikes
+# ---------------------------------------------------------------------------
+@app.route("/api/traffic-spikes")
+def traffic_spikes():
+    conn = get_sql_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT TOP 10 windowEnd, totalEvents, spikeStatus
+        FROM TrafficSpikes
+        ORDER BY windowEnd DESC
+    """)
+
+    rows = cursor.fetchall()
+
+    results = []
+    for row in rows:
+        results.append({
+            "windowEnd": row[0].isoformat() if row[0] else None,
+            "totalEvents": row[1],
+            "spikeStatus": row[2]
+        })
+
+    conn.close()
+    return jsonify(results)
 
 # ---------------------------------------------------------------------------
 # Entry point
